@@ -34,6 +34,45 @@ class RedisClient:
         self.client.sendall(bytes(f"RPUSH {key} {values}", "utf-8"))
         return self.client.recv(1024)
 
+    def delete(self, *keys):
+        keys_str = " ".join(keys)
+        self.client.sendall(bytes(f"DEL {keys_str}", "utf-8"))
+        return self.client.recv(1024)
 
-client = RedisClient()
-print(client.incr("bike"))
+    def exists(self, key: str):
+        self.client.sendall(bytes(f"EXISTS {key}", "utf-8"))
+        return self.client.recv(1024)
+
+    def lpop(self, key: str):
+        self.client.sendall(bytes(f"LPOP {key}", "utf-8"))
+        return self.client.recv(1024)
+
+    def rpop(self, key: str):
+        self.client.sendall(bytes(f"RPOP {key}", "utf-8"))
+        return self.client.recv(1024)
+
+    def llen(self, key: str):
+        self.client.sendall(bytes(f"LLEN {key}", "utf-8"))
+        return self.client.recv(1024)
+
+    def lindex(self, key: str, index: int):
+        self.client.sendall(bytes(f"LINDEX {key} {index}", "utf-8"))
+        return self.client.recv(1024)
+
+    def lrange(self, key: str, start: int, stop: int):
+        self.client.sendall(bytes(f"LRANGE {key} {start} {stop}", "utf-8"))
+        return self.client.recv(1024)
+
+    def close(self):
+        self.client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
+if __name__ == "__main__":
+    with RedisClient() as client:
+        print(client.incr("bike"))

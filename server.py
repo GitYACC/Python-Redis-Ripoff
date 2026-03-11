@@ -8,10 +8,17 @@ strings / numbers:
     DECR value      => decrements value or creates value if not already created
     GET key         => returns value associated with key
     SET key value   => sets key value pair
+    DEL key [key ...] => delete one or more keys
+    EXISTS key      => check if key exists
 
 lists:
     LPUSH list ...  => appends one or more items to head of list
     RPUSH list ...  => appends one or more items to tail of list
+    LPOP list       => remove and return first element from list
+    RPOP list       => remove and return last element from list
+    LLEN list       => return length of list
+    LINDEX list index => get element at index
+    LRANGE list start stop => get range of elements
 """
 
 class Database:
@@ -32,7 +39,7 @@ class Database:
             key = re.findall(r"GET (\w+)", query)[0]
             return self._get(key)
         elif re.search("^SET", query):
-            kvpair = re.findall(r"SET (\w+) (\w+|\"\w+\")", query)[0]
+            kvpair = re.findall(r"SET (\w+) ([^\s]+|\".+\")", query)[0]
             return self._set(*kvpair)
         elif re.search("^LPUSH", query):
             ls = re.findall(r"LPUSH (\w+) (.+)", query)[0]
@@ -40,11 +47,32 @@ class Database:
         elif re.search("^RPUSH", query):
             ls = re.findall(r"RPUSH (\w+) (.+)", query)[0]
             return self._rpush(*ls)
+        elif re.search("^DEL", query):
+            keys = re.findall(r"DEL (.+)", query)[0].split()
+            return self._del(*keys)
+        elif re.search("^EXISTS", query):
+            key = re.findall(r"EXISTS (\w+)", query)[0]
+            return self._exists(key)
+        elif re.search("^LPOP", query):
+            key = re.findall(r"LPOP (\w+)", query)[0]
+            return self._lpop(key)
+        elif re.search("^RPOP", query):
+            key = re.findall(r"RPOP (\w+)", query)[0]
+            return self._rpop(key)
+        elif re.search("^LLEN", query):
+            key = re.findall(r"LLEN (\w+)", query)[0]
+            return self._llen(key)
+        elif re.search("^LINDEX", query):
+            match = re.findall(r"LINDEX (\w+) (-?\d+)", query)[0]
+            return self._lindex(match[0], int(match[1]))
+        elif re.search("^LRANGE", query):
+            match = re.findall(r"LRANGE (\w+) (-?\d+) (-?\d+)", query)[0]
+            return self._lrange(match[0], int(match[1]), int(match[2]))
         else:
-            return "invalid instruction"
+            return "ERR unknown command"
 
     def __interpret(self, value: str):
-        if re.search(r"^\d+(\.\d+)*", value):
+        if re.search(r"^\d+(\.\d+)?$", value):
             if re.search(r"\.", value):
                 return float(value)
             else:
@@ -55,15 +83,23 @@ class Database:
             return value
         
     def _incr(self, key: str):
+        if key not in self._storage:
+            self._storage[key] = 0
+        elif not isinstance(self._storage[key], (int, float)):
+            return "ERR value is not an integer or out of range"
         self._storage[key] += 1
         return self._storage[key]
-    
+
     def _decr(self, key: str):
+        if key not in self._storage:
+            self._storage[key] = 0
+        elif not isinstance(self._storage[key], (int, float)):
+            return "ERR value is not an integer or out of range"
         self._storage[key] -= 1
         return self._storage[key]
 
     def _get(self, key: str):
-        return self._storage[key]
+        return self._storage.get(key, "(nil)")
     
     def _set(self, key: str, value: str):
         self._storage[key] = self.__interpret(value)
@@ -72,18 +108,81 @@ class Database:
     def _lpush(self, key: str, value: str):
         filtered = [self.__interpret(item) for item in value.split()]
         if self._storage.get(key):
+            if not isinstance(self._storage[key], list):
+                return "WRONGTYPE Operation against a key holding the wrong kind of value"
             self._storage[key] = filtered[::-1] + self._storage[key]
         else:
             self._storage[key] = filtered[::-1]
-        return self._storage[key]
+        return len(self._storage[key])
     
     def _rpush(self, key: str, value: str):
         filtered = [self.__interpret(item) for item in value.split()]
         if self._storage.get(key):
+            if not isinstance(self._storage[key], list):
+                return "WRONGTYPE Operation against a key holding the wrong kind of value"
             self._storage[key] += filtered
         else:
             self._storage[key] = filtered
-        return self._storage[key]
+        return len(self._storage[key])
+
+    def _del(self, *keys):
+        count = 0
+        for key in keys:
+            if key in self._storage:
+                del self._storage[key]
+                count += 1
+        return count
+
+    def _exists(self, key: str):
+        return 1 if key in self._storage else 0
+
+    def _lpop(self, key: str):
+        if key not in self._storage:
+            return "(nil)"
+        if not isinstance(self._storage[key], list):
+            return "WRONGTYPE Operation against a key holding the wrong kind of value"
+        if not self._storage[key]:
+            return "(nil)"
+        return self._storage[key].pop(0)
+
+    def _rpop(self, key: str):
+        if key not in self._storage:
+            return "(nil)"
+        if not isinstance(self._storage[key], list):
+            return "WRONGTYPE Operation against a key holding the wrong kind of value"
+        if not self._storage[key]:
+            return "(nil)"
+        return self._storage[key].pop()
+
+    def _llen(self, key: str):
+        if key not in self._storage:
+            return 0
+        if not isinstance(self._storage[key], list):
+            return "WRONGTYPE Operation against a key holding the wrong kind of value"
+        return len(self._storage[key])
+
+    def _lindex(self, key: str, index: int):
+        if key not in self._storage:
+            return "(nil)"
+        if not isinstance(self._storage[key], list):
+            return "WRONGTYPE Operation against a key holding the wrong kind of value"
+        try:
+            return self._storage[key][index]
+        except IndexError:
+            return "(nil)"
+
+    def _lrange(self, key: str, start: int, stop: int):
+        if key not in self._storage:
+            return []
+        if not isinstance(self._storage[key], list):
+            return "WRONGTYPE Operation against a key holding the wrong kind of value"
+
+        # Redis LRANGE behavior: negative indices count from the end
+        lst = self._storage[key]
+        if stop == -1:
+            return lst[start:]
+        else:
+            return lst[start:stop+1]
 
 class Server:
     HOST = socket.gethostbyname("localhost")
