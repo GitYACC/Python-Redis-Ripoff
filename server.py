@@ -19,29 +19,54 @@ class Database:
         self._storage = {}
 
     def parse(self, query: bytes):
-        query = query.decode("utf-8")
+        try:
+            query = query.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return "ERROR: Invalid encoding"
 
         print(query)
-        if re.search("^INCR", query):
-            key = re.findall(r"^INCR (\w+)", query)[0]
-            return self._incr(key)
-        elif re.search("^DECR", query):
-            key = re.findall(r"^DECR (\w+)", query)[0]
-            return self._decr(key)
-        elif re.search("^GET", query):
-            key = re.findall(r"GET (\w+)", query)[0]
-            return self._get(key)
-        elif re.search("^SET", query):
-            kvpair = re.findall(r"SET (\w+) (\w+|\"\w+\")", query)[0]
-            return self._set(*kvpair)
-        elif re.search("^LPUSH", query):
-            ls = re.findall(r"LPUSH (\w+) (.+)", query)[0]
-            return self._lpush(*ls)
-        elif re.search("^RPUSH", query):
-            ls = re.findall(r"RPUSH (\w+) (.+)", query)[0]
-            return self._rpush(*ls)
-        else:
-            return "invalid instruction"
+
+        try:
+            if re.search("^INCR", query):
+                match = re.findall(r"^INCR (\w+)$", query)
+                if not match:
+                    return "ERROR: Invalid INCR syntax"
+                key = match[0]
+                return self._incr(key)
+            elif re.search("^DECR", query):
+                match = re.findall(r"^DECR (\w+)$", query)
+                if not match:
+                    return "ERROR: Invalid DECR syntax"
+                key = match[0]
+                return self._decr(key)
+            elif re.search("^GET", query):
+                match = re.findall(r"^GET (\w+)$", query)
+                if not match:
+                    return "ERROR: Invalid GET syntax"
+                key = match[0]
+                return self._get(key)
+            elif re.search("^SET", query):
+                match = re.findall(r"^SET (\w+) (.+)$", query)
+                if not match:
+                    return "ERROR: Invalid SET syntax"
+                key, value = match[0]
+                return self._set(key, value)
+            elif re.search("^LPUSH", query):
+                match = re.findall(r"^LPUSH (\w+) (.+)$", query)
+                if not match:
+                    return "ERROR: Invalid LPUSH syntax"
+                key, value = match[0]
+                return self._lpush(key, value)
+            elif re.search("^RPUSH", query):
+                match = re.findall(r"^RPUSH (\w+) (.+)$", query)
+                if not match:
+                    return "ERROR: Invalid RPUSH syntax"
+                key, value = match[0]
+                return self._rpush(key, value)
+            else:
+                return "ERROR: Unknown command"
+        except Exception as e:
+            return f"ERROR: {str(e)}"
 
     def __interpret(self, value: str):
         if re.search(r"^\d+(\.\d+)*", value):
@@ -55,15 +80,31 @@ class Database:
             return value
         
     def _incr(self, key: str):
-        self._storage[key] += 1
-        return self._storage[key]
+        if key not in self._storage:
+            self._storage[key] = 0
+        try:
+            current_val = self._storage[key]
+            if not isinstance(current_val, (int, float)):
+                return "ERROR: Value is not a number"
+            self._storage[key] += 1
+            return self._storage[key]
+        except (TypeError, ValueError):
+            return "ERROR: Cannot increment non-numeric value"
     
     def _decr(self, key: str):
-        self._storage[key] -= 1
-        return self._storage[key]
+        if key not in self._storage:
+            self._storage[key] = 0
+        try:
+            current_val = self._storage[key]
+            if not isinstance(current_val, (int, float)):
+                return "ERROR: Value is not a number"
+            self._storage[key] -= 1
+            return self._storage[key]
+        except (TypeError, ValueError):
+            return "ERROR: Cannot decrement non-numeric value"
 
     def _get(self, key: str):
-        return self._storage[key]
+        return self._storage.get(key, None)
     
     def _set(self, key: str, value: str):
         self._storage[key] = self.__interpret(value)
@@ -96,13 +137,25 @@ class Server:
         self._db = Database()
 
     def handle_client(self, conn: socket.socket, addr):
-        with conn:
-            while True:
-                query = conn.recv(1024)
-                if not query:
-                    break
-                res = self._db.parse(query)
-                conn.sendall(bytes(str(res), "utf-8"))
+        print(f"Client connected from {addr}")
+        try:
+            with conn:
+                while True:
+                    try:
+                        query = conn.recv(1024)
+                        if not query:
+                            print(f"Client {addr} disconnected")
+                            break
+                        res = self._db.parse(query)
+                        conn.sendall(bytes(str(res), "utf-8"))
+                    except ConnectionResetError:
+                        print(f"Client {addr} reset connection")
+                        break
+                    except socket.error as e:
+                        print(f"Socket error with client {addr}: {e}")
+                        break
+        except Exception as e:
+            print(f"Error handling client {addr}: {e}")
 
 
     def initialize(self):
